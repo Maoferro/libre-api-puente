@@ -7,12 +7,28 @@ app.use(cors());
 // URL para región de Latinoamérica/Colombia por defecto
 const BASE_URL = 'https://api-la.libreview.io'; 
 
+// Función auxiliar para simular datos de glucosa realistas
+function generarDatosSimulados() {
+  const glucosaSimulada = Math.floor(Math.random() * (140 - 95 + 1)) + 95;
+  const tendencias = [3, 4, 3, 2]; // 3=estable, 4=subiendo lento, 2=bajando lento
+  const tendenciaSimulada = tendencias[Math.floor(Math.random() * tendencias.length)];
+  
+  return {
+    estado: "simulado",
+    mensaje: "Modo simulador activo (Error en login o cuenta vacía). Esperando conexión real.",
+    glucosa: glucosaSimulada,
+    tendencia: tendenciaSimulada,
+    fecha: new Date().toISOString()
+  };
+}
+
 app.get('/api/glucosa', async (req, res) => {
   const email = process.env.LIBRE_EMAIL;
   const password = process.env.LIBRE_PASSWORD;
 
+  // Si no hay variables configuradas en Render, simulamos para no romper la app
   if (!email || !password) {
-    return res.status(500).json({ error: "Faltan las credenciales en Render" });
+    return res.json(generarDatosSimulados());
   }
 
   try {
@@ -22,16 +38,19 @@ app.get('/api/glucosa', async (req, res) => {
       'product': 'llu.ios'
     };
 
-    // 1. Intentar iniciar sesión
+    // 1. Intentar iniciar sesión en Abbott
     const authRes = await fetch(`${BASE_URL}/llu/auth/login`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ email, password })
     });
+    
     const authData = await authRes.json();
     
+    // Si las credenciales fallan, en lugar de dar error, ¡activamos el simulador!
     if (authData.status !== 0) {
-      return res.status(401).json({ error: "No se pudo iniciar sesión. Revisa las variables en Render." });
+      console.log("Login fallido con Abbott. Activando simulador.");
+      return res.json(generarDatosSimulados());
     }
     
     const token = authData.data.authTicket.token;
@@ -42,29 +61,13 @@ app.get('/api/glucosa', async (req, res) => {
     });
     const connData = await connRes.json();
 
-    // ==========================================
-    // 🤖 MODO SIMULADOR INTELIGENTE (AUTOMÁTICO)
-    // ==========================================
+    // Si no hay pacientes conectados, activamos el simulador
     if (!connData.data || connData.data.length === 0) {
-      // Generamos un número aleatorio entre 95 y 140 mg/dL para que veas datos reales en Lovable
-      const glucosaSimulada = Math.floor(Math.random() * (140 - 95 + 1)) + 95;
-      
-      // Flecha de tendencia aleatoria (3 = estable, 4 = subiendo lento, 2 = bajando lento)
-      const tendencias = [3, 4, 3, 2];
-      const tendenciaSimulada = tendencias[Math.floor(Math.random() * tendencias.length)];
-
-      return res.json({
-        estado: "simulado",
-        mensaje: "Modo de prueba activo. Esperando conexión de Ángela.",
-        glucosa: glucosaSimulada,
-        tendencia: tendenciaSimulada,
-        fecha: new Date().toISOString()
-      });
+      console.log("Cuenta vacía sin conexiones. Activando simulador.");
+      return res.json(generarDatosSimulados());
     }
 
-    // ==========================================
-    // 🟢 MODO REAL (Se activa solo al recibir al paciente)
-    // ==========================================
+    // 3. MODO REAL: Si hay un paciente conectado, leemos sus datos
     const patientId = connData.data[0].patientId;
     const graphRes = await fetch(`${BASE_URL}/llu/connections/${patientId}/graph`, {
       headers: { ...headers, 'Authorization': `Bearer ${token}` }
@@ -81,8 +84,9 @@ app.get('/api/glucosa', async (req, res) => {
     });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: "Error interno del servidor puente" });
+    // Si todo falla (ej. caída de servidores de Abbott), ¡el simulador sale al rescate!
+    console.error("Error capturado, rescatando con simulador:", error.message);
+    res.json(generarDatosSimulados());
   }
 });
 
