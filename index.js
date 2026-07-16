@@ -6,7 +6,7 @@ app.use(cors()); // Permite que Lovable lea los datos sin bloqueos
 
 // La región por defecto. Si estás en Colombia/Latam, suele ser esta. 
 // Si falla, prueba cambiar a 'api-us.libreview.io' o 'api-eu.libreview.io'
-const BASE_URL = 'https://api.libreview.io'; 
+const BASE_URL = 'https://api-la.libreview.io'; 
 
 app.get('/api/glucosa', async (req, res) => {
   const email = process.env.LIBRE_EMAIL;
