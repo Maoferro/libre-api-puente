@@ -2,16 +2,16 @@ const express = require('express');
 const axios = require('axios');
 const app = express();
 
-// Middleware para entender formato JSON si lo necesitas después
 app.use(express.json());
 
-// 1. Ruta de prueba para verificar que el servidor esté vivo en internet
+// 1. Ruta de prueba principal
 app.get('/', (req, res) => {
   res.send('Servidor de Monitoreo de Glucosa Activo y Corriendo! 🚀');
 });
 
-// 2. La ruta que consulta la glucosa real de Ángela en LibreLinkUp
+// 2. Ruta para obtener la glucosa en tiempo real
 app.get('/api/glucose', async (req, res) => {
+  // Lee las variables que acabas de configurar en Render
   const email = process.env.LINKUP_USERNAME;
   const password = process.env.LINKUP_PASSWORD;
   
@@ -22,15 +22,17 @@ app.get('/api/glucose', async (req, res) => {
   }
 
   try {
-    // Autenticación con los servidores de LibreLinkUp
+    // Autenticación usando el servidor regional fuera de EE.UU. (.ru)
     const loginResponse = await axios.post(
-      'https://api.libreview.io/llu/auth/login',
+      'https://api.libreview.ru/llu/auth/login',
       { email, password },
       {
         headers: {
           'version': '4.7.0',
           'product': 'llu.android',
           'Content-Type': 'application/json',
+          'Accept-Locale': 'es-CO',
+          'Region': 'co'
         }
       }
     );
@@ -40,14 +42,16 @@ app.get('/api/glucose', async (req, res) => {
       throw new Error("No se pudo obtener el token de autenticación de Abbott.");
     }
 
-    // Consulta de las conexiones vinculadas (donde está Ángela)
+    // Obtener las conexiones autorizadas (Ángela)
     const connectionsResponse = await axios.get(
-      'https://api.libreview.io/llu/connections',
+      'https://api.libreview.ru/llu/connections',
       {
         headers: {
           'Authorization': `Bearer ${token}`,
           'version': '4.7.0',
           'product': 'llu.android',
+          'Accept-Locale': 'es-CO',
+          'Region': 'co'
         }
       }
     );
@@ -55,19 +59,27 @@ app.get('/api/glucose', async (req, res) => {
     const connections = connectionsResponse.data?.data;
     if (!connections || connections.length === 0) {
       return res.status(404).json({ 
-        error: "No se encontraron conexiones activas. Asegúrate de aceptar la invitación de Ángela en LibreLinkUp." 
+        error: "No se encontraron conexiones. Asegúrate de aceptar la invitación en LibreLinkUp." 
       });
     }
 
-    // Extraemos la información del paciente
+    // Extraemos la información en tiempo real de Ángela
     const angelaData = connections[0];
     const currentGlucose = angelaData.glucoseMeasurement;
+
+    if (!currentGlucose) {
+      return res.json({
+        success: true,
+        patientName: `${angelaData.firstName} ${angelaData.lastName}`,
+        message: "Paciente conectado con éxito, pero no hay lecturas de sensor recientes en este momento."
+      });
+    }
 
     res.json({
       success: true,
       patientName: `${angelaData.firstName} ${angelaData.lastName}`,
-      glucose: currentGlucose.Value, // Nivel de azúcar real
-      trend: currentGlucose.TrendArrow, // Flecha de tendencia
+      glucose: currentGlucose.Value,
+      trend: currentGlucose.TrendArrow,
       timestamp: currentGlucose.Timestamp
     });
 
@@ -80,8 +92,7 @@ app.get('/api/glucose', async (req, res) => {
   }
 });
 
-// 3. El puerto mágico: Render le inyecta el puerto aquí automáticamente.
-// Si no hay puerto de Render, usa el 3000 por defecto de forma local.
+// 3. Puerto asignado dinámicamente por Render
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
