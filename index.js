@@ -4,30 +4,29 @@ const app = express();
 
 app.use(express.json());
 
-// 1. Ruta de prueba principal
 app.get('/', (req, res) => {
   res.send('Servidor de Monitoreo de Glucosa Activo y Corriendo! 🚀');
 });
 
-// 2. Ruta para obtener la glucosa en tiempo real
 app.get('/api/glucose', async (req, res) => {
-  // Lee las variables que acabas de configurar en Render
-  const email = process.env.LINKUP_USERNAME;
-  const password = process.env.LINKUP_PASSWORD;
+  // Forzamos a que se interpreten estrictamente como texto limpio
+  const email = String(process.env.LINKUP_USERNAME).trim();
+  const password = String(process.env.LINKUP_PASSWORD).trim();
   
-  if (!email || !password) {
+  if (!email || !password || email === 'undefined' || password === 'undefined') {
     return res.status(500).json({ 
-      error: "Faltan las variables de entorno LINKUP_USERNAME o LINKUP_PASSWORD en Render." 
+      error: "Credenciales inválidas o no configuradas en las variables de Render." 
     });
   }
 
   try {
-    // Autenticación usando el servidor regional fuera de EE.UU. (.ru)
+    // Autenticación simulando la aplicación oficial de Android al 100%
     const loginResponse = await axios.post(
       'https://api.libreview.ru/llu/auth/login',
-      { email, password },
+      { email: email, password: password },
       {
         headers: {
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36',
           'version': '4.7.0',
           'product': 'llu.android',
           'Content-Type': 'application/json',
@@ -39,15 +38,16 @@ app.get('/api/glucose', async (req, res) => {
 
     const token = loginResponse.data?.data?.authTicket?.token;
     if (!token) {
-      throw new Error("No se pudo obtener el token de autenticación de Abbott.");
+      throw new Error("Abbott no devolvió un token válido.");
     }
 
-    // Obtener las conexiones autorizadas (Ángela)
+    // Obtener las conexiones
     const connectionsResponse = await axios.get(
       'https://api.libreview.ru/llu/connections',
       {
         headers: {
           'Authorization': `Bearer ${token}`,
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.181 Mobile Safari/537.36',
           'version': '4.7.0',
           'product': 'llu.android',
           'Accept-Locale': 'es-CO',
@@ -59,11 +59,10 @@ app.get('/api/glucose', async (req, res) => {
     const connections = connectionsResponse.data?.data;
     if (!connections || connections.length === 0) {
       return res.status(404).json({ 
-        error: "No se encontraron conexiones. Asegúrate de aceptar la invitación en LibreLinkUp." 
+        error: "No se encontraron conexiones. Revisa las invitaciones pendientes." 
       });
     }
 
-    // Extraemos la información en tiempo real de Ángela
     const angelaData = connections[0];
     const currentGlucose = angelaData.glucoseMeasurement;
 
@@ -71,7 +70,7 @@ app.get('/api/glucose', async (req, res) => {
       return res.json({
         success: true,
         patientName: `${angelaData.firstName} ${angelaData.lastName}`,
-        message: "Paciente conectado con éxito, pero no hay lecturas de sensor recientes en este momento."
+        message: "Conectado, pero el sensor no tiene lecturas nuevas en este instante."
       });
     }
 
@@ -84,7 +83,7 @@ app.get('/api/glucose', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("Error conectando con la API de Abbott:", error.message);
+    console.error("Error en Abbott:", error.message);
     res.status(500).json({ 
       error: "Error al conectar con LibreLinkUp", 
       details: error.response?.data || error.message 
@@ -92,9 +91,7 @@ app.get('/api/glucose', async (req, res) => {
   }
 });
 
-// 3. Puerto asignado dinámicamente por Render
 const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(`==> Servidor activo y escuchando en el puerto ${PORT}`);
+  console.log(`==> Servidor activo en puerto ${PORT}`);
 });
